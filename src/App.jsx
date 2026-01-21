@@ -1,17 +1,64 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 const STORAGE_KEY = 'reading-journal-books'
+const API_URL = '/api/books'
 
 function App() {
-  const [books, setBooks] = useState(() => {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    return saved ? JSON.parse(saved) : []
-  })
+  const [books, setBooks] = useState([])
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingBook, setEditingBook] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const isInitialLoad = useRef(true)
 
+  // Load books from API on mount
   useEffect(() => {
+    async function loadBooks() {
+      try {
+        const res = await fetch(API_URL)
+        if (res.ok) {
+          const data = await res.json()
+          setBooks(data)
+        } else {
+          // Fallback to localStorage
+          const saved = localStorage.getItem(STORAGE_KEY)
+          if (saved) setBooks(JSON.parse(saved))
+        }
+      } catch {
+        // Fallback to localStorage for local dev
+        const saved = localStorage.getItem(STORAGE_KEY)
+        if (saved) setBooks(JSON.parse(saved))
+      } finally {
+        setLoading(false)
+        isInitialLoad.current = false
+      }
+    }
+    loadBooks()
+  }, [])
+
+  // Save books to API when changed
+  useEffect(() => {
+    if (isInitialLoad.current) return
+
+    // Always save to localStorage as backup
     localStorage.setItem(STORAGE_KEY, JSON.stringify(books))
+
+    // Save to API
+    async function saveBooks() {
+      setSyncing(true)
+      try {
+        await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(books)
+        })
+      } catch {
+        // Silently fail - localStorage backup exists
+      } finally {
+        setSyncing(false)
+      }
+    }
+    saveBooks()
   }, [books])
 
   const addBook = (book) => {
@@ -44,6 +91,14 @@ function App() {
   const tbrBooks = books.filter(book => book.status === 'tbr')
   const finishedBooks = books.filter(book => book.status === 'finished')
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-cream flex items-center justify-center">
+        <div className="text-charcoal-light text-lg">Loading your library...</div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-cream">
       <header className="bg-charcoal text-cream py-8 px-4 shadow-lg">
@@ -53,6 +108,7 @@ function App() {
           </h1>
           <p className="text-cream-dark text-center mt-2 text-sm tracking-widest uppercase">
             Reading Journal
+            {syncing && <span className="ml-2 text-xs opacity-70">(syncing...)</span>}
           </p>
         </div>
       </header>
